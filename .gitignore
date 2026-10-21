@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local secrets & data
+.env
+data/
+*.csv
+!tests/**/*.csv
+
+# LocalStack state
+.localstack/
+
+# Generated training reports
+reports/
+
+# Terraform (added in later phases)
+.terraform/
+*.tfstate
+*.tfstate.*
