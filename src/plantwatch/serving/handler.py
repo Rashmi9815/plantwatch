@@ -10,9 +10,16 @@ from __future__ import annotations
 import json
 import os
 
+from plantwatch.monitoring.metrics import emit as emit_metric
 from plantwatch.serving.service import load_bundle, score_payload
 
 _BUNDLE = None
+
+
+def _should_emit() -> bool:
+    return bool(
+        os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or os.environ.get("PLANTWATCH_EMIT_METRICS")
+    )
 
 
 def _bundle():
@@ -36,6 +43,8 @@ def handler(event: dict, context=None) -> dict:
         raw = event.get("body") if isinstance(event, dict) else None
         payload = json.loads(raw) if isinstance(raw, str) else (raw or event or {})
         result = score_payload(payload, _bundle())
+        if _should_emit():
+            emit_metric(result)
         return _response(200, result)
     except (ValueError, KeyError, TypeError) as exc:
         return _response(400, {"error": str(exc)})

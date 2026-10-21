@@ -9,11 +9,10 @@ learns each machine's *normal* signature, flags deviations early, and keeps itse
 monitoring and scheduled retraining.
 
 > This repository is built in six phases, each one demoable on its own.
-> **Phases 1–4 complete:** data & local loop; the models (Isolation Forest baseline, PCA +
-> LSTM-autoencoder challengers) with time-ordered validation and honest metrics; the relational
-> layer (Postgres schema + analytical SQL + portable persistence); and serving — a Lambda
-> inference endpoint behind API Gateway, with the whole stack written as Terraform (LocalStack or
-> real AWS).
+> **Phases 1–5 complete:** data & local loop; the models (Isolation Forest baseline, PCA +
+> LSTM-autoencoder challengers) with honest metrics; the relational layer (Postgres schema +
+> analytical SQL + portable persistence); serving (Lambda + API Gateway as Terraform); and
+> CI/CD + monitoring (GitHub Actions, CloudWatch EMF metrics, alarms & dashboard, drift detection).
 
 ## Architecture (target)
 
@@ -165,6 +164,35 @@ See [infra/README.md](infra/README.md) for details. Terraform lives in [infra/](
 | `infra/*.tf` | S3, IAM, Lambda, HTTP API Gateway as Terraform |
 | `scripts/build_lambda.sh` | Build the deployment package |
 
+## Phase 5 — CI/CD & monitoring
+
+**CI/CD** — [.github/workflows/](.github/workflows/):
+- `ci.yml` — on every push/PR: `ruff check`, `ruff format --check`, `pytest`.
+- `deploy.yml` — manual (`workflow_dispatch`) only, since deploying bills real AWS: builds the
+  Lambda package and runs `terraform apply` using repo AWS secrets.
+
+**Monitoring** — the Lambda emits a CloudWatch [EMF](src/plantwatch/monitoring/metrics.py) line per
+request (anomaly score + flag, dimensioned by machine and model), so metrics appear with zero added
+latency. [infra/monitoring.tf](infra/monitoring.tf) adds a log group, two alarms (Lambda errors;
+sustained high anomaly rate), and a dashboard.
+
+**Drift detection** — [monitoring/drift.py](src/plantwatch/monitoring/drift.py) computes the
+Population Stability Index per feature; PSI > 0.2 flags a distribution shift — the retraining
+trigger wired up in Phase 6.
+
+```python
+from plantwatch.monitoring.drift import drift_report
+drift_report(reference_features, current_features)   # {'motor_current_mean': {'psi': 0.03, 'drifted': False}, ...}
+```
+
+| Artifact | Role |
+| --- | --- |
+| `.github/workflows/ci.yml` | Lint + format-check + test on every push/PR |
+| `.github/workflows/deploy.yml` | Manual, gated Terraform deploy |
+| `monitoring/metrics.py` | CloudWatch EMF metric emission |
+| `monitoring/drift.py` | PSI data-drift detection |
+| `infra/monitoring.tf` | Log group, alarms, dashboard |
+
 ## Development
 
 ```bash
@@ -181,5 +209,5 @@ Pre-commit runs ruff + hygiene hooks on every commit (`make install` sets it up)
 2. ~~Model: Isolation Forest baseline → PCA / LSTM autoencoder challenger~~ ✅
 3. ~~Data model & SQL on RDS~~ ✅
 4. ~~Serving (Lambda + API Gateway) & Terraform IaC~~ ✅
-5. CI/CD (GitHub Actions) & CloudWatch monitoring ← next
-6. Retraining loop (EventBridge + SageMaker Autopilot)
+5. ~~CI/CD (GitHub Actions) & CloudWatch monitoring~~ ✅
+6. Retraining loop (EventBridge + SageMaker Autopilot) ← next
