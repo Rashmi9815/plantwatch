@@ -223,12 +223,3 @@ make test    # pytest
 ```
 
 Pre-commit runs ruff + hygiene hooks on every commit (`make install` sets it up).
-
-## Roadmap
-
-1. ~~Data & local loop~~ ✅
-2. ~~Model: Isolation Forest baseline → PCA / LSTM autoencoder challenger~~ ✅
-3. ~~Data model & SQL on RDS~~ ✅
-4. ~~Serving (Lambda + API Gateway) & Terraform IaC~~ ✅
-5. ~~CI/CD (GitHub Actions) & CloudWatch monitoring~~ ✅
-6. ~~Retraining loop (EventBridge + SageMaker Autopilot)~~ ✅
