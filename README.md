@@ -9,9 +9,10 @@ learns each machine's *normal* signature, flags deviations early, and keeps itse
 monitoring and scheduled retraining.
 
 > This repository is built in six phases, each one demoable on its own.
-> **Phases 1–2 complete:** data & local loop (ingestion, cleaning, windowing) and the models
+> **Phases 1–3 complete:** data & local loop (ingestion, cleaning, windowing); the models
 > (Isolation Forest baseline, PCA + LSTM-autoencoder reconstruction challengers) with time-ordered
-> validation, label-free threshold selection, and a JSON metrics report.
+> validation, label-free threshold selection, and a JSON metrics report; and the relational layer
+> (Postgres schema + analytical SQL + a portable persistence layer that stores scores back to a DB).
 
 ## Architecture (target)
 
@@ -97,6 +98,36 @@ pip install -e ".[deep]"   # installs PyTorch
 | `evaluation/thresholds.py` | Label-free quantile threshold from normal scores |
 | `pipelines/train.py` | End-to-end train → threshold → evaluate → report |
 
+## Phase 3 — data model & SQL
+
+A PostgreSQL schema (`db/schema.sql`), a library of analytical queries (`db/queries.sql`), and a
+SQLAlchemy persistence layer (`db/repository.py`) that runs on **SQLite** for tests/local dev and
+**PostgreSQL/RDS** in production — only the connection URL changes.
+
+Persist the model scores from Phase 2 straight into a database:
+
+```bash
+# local SQLite file
+python -m plantwatch.pipelines.train --db-url sqlite:///plantwatch.db
+# real RDS Postgres (needs the db extra: pip install -e ".[db]")
+python -m plantwatch.pipelines.train --db-url "postgresql+psycopg://user:pw@host:5432/plantwatch"
+```
+
+Then read it back:
+
+```python
+from plantwatch.db import repository as repo
+eng = repo.get_engine("sqlite:///plantwatch.db")
+repo.anomaly_count_by_model(eng)      # {'isolation_forest@w30': 579, 'pca_reconstruction@w30': 626, ...}
+repo.recent_anomalies(eng, limit=10)  # newest flagged windows
+```
+
+| Artifact | Role |
+| --- | --- |
+| `db/schema.sql` | Authoritative Postgres DDL — tables, partial indexes, dashboard views |
+| `db/queries.sql` | Named analytical queries (recent anomalies, hourly rate, model comparison) |
+| `db/repository.py` | Portable SQLAlchemy Core layer: create, insert, query |
+
 ## Development
 
 ```bash
@@ -111,7 +142,7 @@ Pre-commit runs ruff + hygiene hooks on every commit (`make install` sets it up)
 
 1. ~~Data & local loop~~ ✅
 2. ~~Model: Isolation Forest baseline → PCA / LSTM autoencoder challenger~~ ✅
-3. Data model & SQL on RDS ← next
-4. Serving (Lambda + API Gateway) & Terraform IaC
+3. ~~Data model & SQL on RDS~~ ✅
+4. Serving (Lambda + API Gateway) & Terraform IaC ← next
 5. CI/CD (GitHub Actions) & CloudWatch monitoring
 6. Retraining loop (EventBridge + SageMaker Autopilot)

@@ -58,7 +58,7 @@ def evaluate_detector(detector, train_ds, val_ds, test_ds, *, q: float) -> dict:
     metrics = classification_at_threshold(test_ds.y, test_scores, threshold)
     metrics["pr_auc"] = pr_auc(test_ds.y, test_scores)
     metrics["best_f1_threshold_oracle"] = best_f1_threshold(test_ds.y, test_scores)
-    return metrics
+    return {"metrics": metrics, "threshold": threshold, "scores": test_scores}
 
 
 def run(
@@ -69,6 +69,8 @@ def run(
     quantile: float = 0.99,
     use_autoencoder: bool = True,
     out_dir: str = "reports",
+    db_url: str | None = None,
+    machine_id: str = "SYNTH-1",
 ) -> dict:
     sensors = list(DEFAULT_SENSORS)
     df = clean(generate_sensor_frame(n_rows=n_rows, seed=seed), sensors)
@@ -79,15 +81,37 @@ def run(
     test_ds = build_windows(test_df, sensors, window=window)
     log.info(
         "windows — train:%d val:%d test:%d | test anomalies:%d",
-        len(train_ds), len(val_ds), len(test_ds), int(test_ds.y.sum()),
+        len(train_ds),
+        len(val_ds),
+        len(test_ds),
+        int(test_ds.y.sum()),
     )
 
     results = {}
+    prediction_rows = []
     for detector in _build_detectors(use_autoencoder):
         log.info("fitting %s ...", detector.name)
-        results[detector.name] = evaluate_detector(
-            detector, train_ds, val_ds, test_ds, q=quantile
-        )
+        outcome = evaluate_detector(detector, train_ds, val_ds, test_ds, q=quantile)
+        results[detector.name] = outcome["metrics"]
+        if db_url:
+            from plantwatch.db import repository as repo
+
+            prediction_rows += repo.predictions_from_scores(
+                machine_id,
+                test_ds.index,
+                outcome["scores"],
+                threshold=outcome["threshold"],
+                model_version=f"{detector.name}@w{window}",
+            )
+
+    if db_url:
+        from plantwatch.db import repository as repo
+
+        engine = repo.get_engine(db_url)
+        repo.create_all(engine)
+        repo.upsert_machine(engine, machine_id, "Synthetic line", location="simulator")
+        n = repo.insert_predictions(engine, prediction_rows)
+        log.info("persisted %d predictions to %s", n, db_url)
 
     report = {
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -126,6 +150,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--quantile", type=float, default=0.99)
     parser.add_argument("--no-autoencoder", action="store_true", help="skip the LSTM model")
     parser.add_argument("--out-dir", default="reports")
+    parser.add_argument(
+        "--db-url",
+        default=None,
+        help="persist predictions, e.g. sqlite:///plantwatch.db or postgresql+psycopg://...",
+    )
     args = parser.parse_args(argv)
     run(
         n_rows=args.rows,
@@ -134,6 +163,7 @@ def main(argv: list[str] | None = None) -> None:
         quantile=args.quantile,
         use_autoencoder=not args.no_autoencoder,
         out_dir=args.out_dir,
+        db_url=args.db_url,
     )
 
 
