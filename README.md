@@ -9,10 +9,11 @@ learns each machine's *normal* signature, flags deviations early, and keeps itse
 monitoring and scheduled retraining.
 
 > This repository is built in six phases, each one demoable on its own.
-> **Phases 1–3 complete:** data & local loop (ingestion, cleaning, windowing); the models
-> (Isolation Forest baseline, PCA + LSTM-autoencoder reconstruction challengers) with time-ordered
-> validation, label-free threshold selection, and a JSON metrics report; and the relational layer
-> (Postgres schema + analytical SQL + a portable persistence layer that stores scores back to a DB).
+> **Phases 1–4 complete:** data & local loop; the models (Isolation Forest baseline, PCA +
+> LSTM-autoencoder challengers) with time-ordered validation and honest metrics; the relational
+> layer (Postgres schema + analytical SQL + portable persistence); and serving — a Lambda
+> inference endpoint behind API Gateway, with the whole stack written as Terraform (LocalStack or
+> real AWS).
 
 ## Architecture (target)
 
@@ -128,6 +129,42 @@ repo.recent_anomalies(eng, limit=10)  # newest flagged windows
 | `db/queries.sql` | Named analytical queries (recent anomalies, hourly rate, model comparison) |
 | `db/repository.py` | Portable SQLAlchemy Core layer: create, insert, query |
 
+## Phase 4 — serving & infrastructure as code
+
+Export a trained model as a servable bundle, then serve it from a Lambda behind API Gateway.
+The scoring logic is a pure function (`serving/service.py`), so it's fully unit-tested without AWS.
+
+```bash
+make export            # train + save artifacts/model.joblib
+```
+
+The Lambda handler ([serving/handler.py](src/plantwatch/serving/handler.py)) loads the bundle once
+per cold start and scores a posted window:
+
+```json
+POST /score
+{ "machine_id": "SYNTH-1", "window": [[50,60,70,80,90], ... 30 sensor rows ... ] }
+-> { "model_version": "pca_reconstruction@w30", "score": 0.07, "is_anomaly": false }
+```
+
+Deploy the stack (S3 + IAM + Lambda + API Gateway) with Terraform — same `.tf` for both targets:
+
+```bash
+make lambda-zip        # build/lambda.zip (model + source + deps)
+make tf-local          # -> LocalStack (free; needs tflocal + Docker)
+make tf-aws            # -> real AWS   (then: make tf-destroy)
+```
+
+See [infra/README.md](infra/README.md) for details. Terraform lives in [infra/](infra/).
+
+| Artifact | Role |
+| --- | --- |
+| `serving/service.py` | Pure scoring function + model bundle (save/load) |
+| `serving/handler.py` | AWS Lambda / API Gateway entrypoint |
+| `pipelines/export.py` | Train one detector and save a servable bundle |
+| `infra/*.tf` | S3, IAM, Lambda, HTTP API Gateway as Terraform |
+| `scripts/build_lambda.sh` | Build the deployment package |
+
 ## Development
 
 ```bash
@@ -143,6 +180,6 @@ Pre-commit runs ruff + hygiene hooks on every commit (`make install` sets it up)
 1. ~~Data & local loop~~ ✅
 2. ~~Model: Isolation Forest baseline → PCA / LSTM autoencoder challenger~~ ✅
 3. ~~Data model & SQL on RDS~~ ✅
-4. Serving (Lambda + API Gateway) & Terraform IaC ← next
-5. CI/CD (GitHub Actions) & CloudWatch monitoring
+4. ~~Serving (Lambda + API Gateway) & Terraform IaC~~ ✅
+5. CI/CD (GitHub Actions) & CloudWatch monitoring ← next
 6. Retraining loop (EventBridge + SageMaker Autopilot)

@@ -25,6 +25,11 @@ data/
 # Generated training reports
 reports/
 
+# Build artifacts & exported models
+build/
+artifacts/
+*.joblib
+
 # Terraform (added in later phases)
 .terraform/
 *.tfstate

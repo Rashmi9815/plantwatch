@@ -1,4 +1,4 @@
-.PHONY: install lint fmt test up down replay demo clean
+.PHONY: install lint fmt test up down replay demo clean export lambda-zip tf-local tf-aws tf-destroy serve-test
 
 install:  ## install package + dev tools and git hooks
 	pip install -e ".[dev]"
@@ -26,5 +26,20 @@ replay:  ## stream synthetic telemetry into LocalStack S3
 
 demo: up replay  ## bring up LocalStack and push a stream through it
 
-clean:  ## remove caches
-	rm -rf .pytest_cache .ruff_cache **/__pycache__ src/*.egg-info
+export:  ## train and save a servable model bundle
+	python -m plantwatch.pipelines.export --model pca --out artifacts/model.joblib
+
+lambda-zip:  ## build the Lambda deployment package (model + source + deps)
+	bash scripts/build_lambda.sh
+
+tf-local:  ## deploy the stack to LocalStack (needs tflocal + Docker)
+	cd infra && tflocal init && tflocal apply -auto-approve
+
+tf-aws:  ## deploy the stack to real AWS (review the plan before approving)
+	cd infra && terraform init && terraform apply
+
+tf-destroy:  ## tear the stack down (run after a real-AWS session!)
+	cd infra && terraform destroy
+
+clean:  ## remove caches and build artifacts
+	rm -rf .pytest_cache .ruff_cache **/__pycache__ src/*.egg-info build artifacts
