@@ -8,11 +8,11 @@ temperature, vibration, throughput, line pressure). Unplanned failure halts the 
 learns each machine's *normal* signature, flags deviations early, and keeps itself healthy through
 monitoring and scheduled retraining.
 
-> This repository is built in six phases, each one demoable on its own.
-> **Phases 1–5 complete:** data & local loop; the models (Isolation Forest baseline, PCA +
-> LSTM-autoencoder challengers) with honest metrics; the relational layer (Postgres schema +
-> analytical SQL + portable persistence); serving (Lambda + API Gateway as Terraform); and
-> CI/CD + monitoring (GitHub Actions, CloudWatch EMF metrics, alarms & dashboard, drift detection).
+> This repository is built in six phases. **All six are complete:** data & local loop; the models
+> (Isolation Forest baseline, PCA + LSTM-autoencoder challengers) with honest metrics; the relational
+> layer (Postgres schema + analytical SQL + portable persistence); serving (Lambda + API Gateway as
+> Terraform); CI/CD + monitoring (GitHub Actions, CloudWatch EMF metrics, alarms & dashboard, drift
+> detection); and a scheduled retraining loop with a promote-on-improvement gate.
 
 ## Architecture (target)
 
@@ -193,6 +193,27 @@ drift_report(reference_features, current_features)   # {'motor_current_mean': {'
 | `monitoring/drift.py` | PSI data-drift detection |
 | `infra/monitoring.tf` | Log group, alarms, dashboard |
 
+## Phase 6 — retraining loop
+
+Closes the loop and makes the system self-sustaining. A candidate model is trained on recent data
+and promoted **only if it beats the live model by a margin** — a new model never ships just because
+a schedule fired.
+
+```bash
+python -m plantwatch.pipelines.retrain --incumbent artifacts/model.joblib --out artifacts/model.joblib
+# -> "candidate +0.0123 ≥ 0.01 → promote"   (or "... → keep incumbent")
+```
+
+Two triggers feed it: an **EventBridge schedule** ([infra/retrain.tf](infra/retrain.tf)) and
+**drift** — `should_retrain()` fires when the Phase-5 PSI detector sees a distribution shift. In
+production the heavy training runs as a SageMaker job / Autopilot that this Lambda starts; the
+promote-on-improvement gate applies to whatever produced the candidate.
+
+| Artifact | Role |
+| --- | --- |
+| `pipelines/retrain.py` | Candidate training, promotion gate, drift trigger, Lambda entrypoint |
+| `infra/retrain.tf` | EventBridge schedule + retrain Lambda |
+
 ## Development
 
 ```bash
@@ -210,4 +231,4 @@ Pre-commit runs ruff + hygiene hooks on every commit (`make install` sets it up)
 3. ~~Data model & SQL on RDS~~ ✅
 4. ~~Serving (Lambda + API Gateway) & Terraform IaC~~ ✅
 5. ~~CI/CD (GitHub Actions) & CloudWatch monitoring~~ ✅
-6. Retraining loop (EventBridge + SageMaker Autopilot) ← next
+6. ~~Retraining loop (EventBridge + SageMaker Autopilot)~~ ✅
